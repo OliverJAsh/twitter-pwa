@@ -1,0 +1,10 @@
+{
+    "compilerOptions": {
+        "noImplicitAny": true,
+        "target": "es5",
+        "module": "commonjs",
+        "allowJs": true,
+        "outDir": "target"
+    },
+    "files": ["./src/index.ts"]
+}

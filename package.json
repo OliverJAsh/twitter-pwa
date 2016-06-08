@@ -1,0 +1,15 @@
+{
+  "private": true,
+  "scripts": {
+    "start": "rm -rf target && mkdir target && tsc && node ./target/index.js"
+  },
+  "dependencies": {
+    "denodeify": "^1.2.1",
+    "express": "^4.13.3",
+    "express-session": "^1.13.0",
+    "lodash": "^4.7.0",
+    "node-fetch": "^1.5.0",
+    "typescript": "^1.8.7",
+    "typings": "^0.7.9"
+  }
+}
