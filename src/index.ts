@@ -45,37 +45,79 @@ const createNonce = () => randomBytes(32).then(buffer => (
     buffer.toString('base64').replace(/[^\w]/g, '')
 ));
 
+const stringifyQueryParamsObj = (oauthParams: {}) => (
+    toPairs(oauthParams)
+        .map(([ key, value ]) => `${encodeURIComponent(key)}=${encodeURIComponent(value)}`)
+        .join('&')
+);
+
 const oauthHeaderFromObj = (oauthParams: {}) => (
     toPairs(oauthParams)
         .map(([ key, value ]) => `${encodeURIComponent(key)}="${encodeURIComponent(value)}"`)
         .join(', ')
 );
 
-const getRequestToken = () => {
-    return createNonce().then(nonce => {
-        const oauthParams = {
+// https://dev.twitter.com/oauth/overview/authorizing-requests#collecting-parameters
+const getOauthParams = (maybeOAuthRequestOrAccessToken?: string) => (
+    createNonce().then(nonce => (
+        Object.assign({}, {
             oauth_callback: twitterCallbackURL,
             oauth_consumer_key: twitterConsumerKey,
             oauth_nonce: nonce,
             oauth_signature_method: 'HMAC-SHA1',
             oauth_timestamp: parseInt((Date.now() / 1000).toFixed(0)),
-            oauth_version: '1.0'
-        };
-        const baseUrl = `${twitterApiURL}/oauth/request_token`;
-        const method = 'POST';
-        const oauthSignature = createOauthSignature({
-            method,
-            baseUrl,
-            parameters: oauthParams,
-            oauthTokenSecret: ''
-        });
-        const oauthHeader = oauthHeaderFromObj(
-            Object.assign({}, oauthParams, { oauth_signature: oauthSignature })
-        );
+            oauth_version: '1.0',
+        }, (
+            maybeOAuthRequestOrAccessToken !== undefined
+                ? { oauth_token: maybeOAuthRequestOrAccessToken, }
+                : {}
+        ))
+    ))
+);
 
-        return fetch(baseUrl, {
-            method,
-            headers: { 'Authorization': `OAuth ${oauthHeader}` }
+const fetchFromTwitter = ({
+    oauthParams,
+    oauthAccessTokenSecret,
+    baseUrlPath,
+    method,
+    otherParams,
+}: {
+    oauthParams: {},
+    oauthAccessTokenSecret: string,
+    baseUrlPath: string,
+    method: string,
+    otherParams: {},
+}) => {
+    const baseUrl = `${twitterApiURL}${baseUrlPath}`;
+    const parameters = Object.assign({}, oauthParams, otherParams);
+    const oauthSignature = createOauthSignature({
+        method,
+        baseUrl,
+        parameters,
+        oauthTokenSecret: oauthAccessTokenSecret
+    });
+    const oauthHeader = oauthHeaderFromObj(
+        Object.assign({}, oauthParams, { oauth_signature: oauthSignature })
+    );
+
+    const paramsStr = Object.keys(otherParams).length > 0
+        ? `?${stringifyQueryParamsObj(otherParams)}`
+        : '';
+    const url = `${baseUrl}${paramsStr}`;
+    return fetch(url, {
+        method,
+        headers: { 'Authorization': `OAuth ${oauthHeader}` }
+    })
+}
+
+const getRequestToken = () => {
+    return getOauthParams().then(oauthParams => {
+        return fetchFromTwitter({
+            oauthParams,
+            oauthAccessTokenSecret: '',
+            baseUrlPath: `/oauth/request_token`,
+            method: 'POST',
+            otherParams: {},
         })
             .then(response => response.text().then(text => {
                 if (response.ok) {
@@ -95,31 +137,13 @@ const getRequestToken = () => {
 }
 
 const getAccessToken = ({ oauthRequestToken, oauthVerifier }: { oauthRequestToken: string, oauthVerifier: string }) => {
-    return createNonce().then(nonce => {
-        const oauthParams = {
-            oauth_callback: twitterCallbackURL,
-            oauth_consumer_key: twitterConsumerKey,
-            oauth_nonce: nonce,
-            oauth_signature_method: 'HMAC-SHA1',
-            oauth_timestamp: parseInt((Date.now() / 1000).toFixed(0)),
-            oauth_version: '1.0',
-            oauth_token: oauthRequestToken
-        };
-        const baseUrl = `${twitterApiURL}/oauth/access_token?oauth_verifier=${oauthVerifier}`;
-        const method = 'POST';
-        const oauthSignature = createOauthSignature({
-            method,
-            baseUrl,
-            parameters: oauthParams,
-            oauthTokenSecret: ''
-        });
-        const oauthHeader = oauthHeaderFromObj(
-            Object.assign({}, oauthParams, { oauth_signature: oauthSignature })
-        );
-
-        return fetch(baseUrl, {
-            method,
-            headers: { 'Authorization': `OAuth ${oauthHeader}` }
+    return getOauthParams(oauthRequestToken).then(oauthParams => {
+        return fetchFromTwitter({
+            oauthParams,
+            oauthAccessTokenSecret: '',
+            baseUrlPath: `/oauth/access_token?oauth_verifier=${oauthVerifier}`,
+            method: 'POST',
+            otherParams: {},
         })
             .then(response => response.text().then(text => {
                 if (response.ok) {
@@ -141,38 +165,23 @@ const getAccessToken = ({ oauthRequestToken, oauthVerifier }: { oauthRequestToke
 };
 
 const getTimeline = ({ oauthAccessToken, oauthAccessTokenSecret }: { oauthAccessToken: string, oauthAccessTokenSecret: string }) => {
-    return createNonce().then(nonce => {
-        const oauthParams = {
-            oauth_callback: twitterCallbackURL,
-            oauth_consumer_key: twitterConsumerKey,
-            oauth_nonce: nonce,
-            oauth_signature_method: 'HMAC-SHA1',
-            oauth_timestamp: parseInt((Date.now() / 1000).toFixed(0)),
-            oauth_version: '1.0',
-            oauth_token: oauthAccessToken
-        };
-        const baseUrl = `${twitterApiURL}/1.1/statuses/home_timeline.json`;
-        const method = 'GET';
-        const oauthSignature = createOauthSignature({
-            method,
-            baseUrl,
-            parameters: oauthParams,
-            oauthTokenSecret: oauthAccessTokenSecret
-        });
-        const oauthHeader = oauthHeaderFromObj(
-            Object.assign({}, oauthParams, { oauth_signature: oauthSignature })
-        );
-
-        return fetch(baseUrl, {
-            method,
-            headers: { 'Authorization': `OAuth ${oauthHeader}` }
+    return getOauthParams(oauthAccessToken).then(oauthParams => {
+        return fetchFromTwitter({
+            oauthParams,
+            oauthAccessTokenSecret,
+            baseUrlPath: '/1.1/statuses/home_timeline.json',
+            method: 'GET',
+            // 200 is max
+            otherParams: {
+                count: 200,
+            },
         })
             .then(response => response.json().then(json => {
                 if (response.ok) {
                     // TODO: Model json
                     return json;
                 } else {
-                    throw new Error(`Bad response from Twitter: ${response.status} ${json}`)
+                    throw new Error(`Bad response from Twitter: ${response.status} ${JSON.stringify(json, null, '\t')}`)
                 }
             }))
     });
@@ -215,7 +224,7 @@ app.get('/', (req, res, next) => {
             })
             .catch(next);
     } else {
-        res.send('false');
+        res.send('Not authenticated');
     }
 })
 
