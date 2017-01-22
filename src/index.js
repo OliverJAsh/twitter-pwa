@@ -1,17 +1,11 @@
-/// <reference path="../typings/main.d.ts" />
-/// <reference path="../manual-typings/main.d.ts" />
-
-// https://github.com/Microsoft/TypeScript/issues/3005
-/// <reference path="../node_modules/typescript/lib/lib.es6.d.ts" />
-
 import { Server, createServer } from 'http';
-import * as express from 'express';
+import express from 'express';
 import fetch from 'node-fetch';
 import { randomBytes as randomBytesCb } from 'crypto';
-import * as denodeify from 'denodeify';
+import denodeify from 'denodeify';
 import { toPairs, sortBy } from 'lodash';
 import { createHmac } from 'crypto';
-import * as session from 'express-session';
+import session from 'express-session';
 
 const randomBytes = denodeify(randomBytesCb);
 
@@ -25,7 +19,7 @@ const twitterCallbackURL = 'http://127.0.0.1:8080/auth/callback';
 const twitterApiURL = 'https://api.twitter.com';
 
 // https://dev.twitter.com/oauth/overview/creating-signatures
-const createOauthSignature = ({ method, baseUrl, parameters, oauthTokenSecret }: { method: string, baseUrl: string, parameters: {}, oauthTokenSecret: string }): string => {
+const createOauthSignature = ({ method, baseUrl, parameters, oauthTokenSecret }) => {
     const parametersString = sortBy(
         toPairs(parameters)
             .map(([ key, value ]) => [ encodeURIComponent(key), encodeURIComponent(value) ]),
@@ -45,20 +39,20 @@ const createNonce = () => randomBytes(32).then(buffer => (
     buffer.toString('base64').replace(/[^\w]/g, '')
 ));
 
-const stringifyQueryParamsObj = (oauthParams: {}) => (
+const stringifyQueryParamsObj = (oauthParams) => (
     toPairs(oauthParams)
         .map(([ key, value ]) => `${encodeURIComponent(key)}=${encodeURIComponent(value)}`)
         .join('&')
 );
 
-const oauthHeaderFromObj = (oauthParams: {}) => (
+const oauthHeaderFromObj = (oauthParams) => (
     toPairs(oauthParams)
         .map(([ key, value ]) => `${encodeURIComponent(key)}="${encodeURIComponent(value)}"`)
         .join(', ')
 );
 
 // https://dev.twitter.com/oauth/overview/authorizing-requests#collecting-parameters
-const getOauthParams = (maybeOAuthRequestOrAccessToken?: string) => (
+const getOauthParams = (maybeOAuthRequestOrAccessToken) => (
     createNonce().then(nonce => (
         Object.assign({}, {
             oauth_callback: twitterCallbackURL,
@@ -81,12 +75,6 @@ const fetchFromTwitter = ({
     baseUrlPath,
     method,
     otherParams,
-}: {
-    oauthParams: {},
-    oauthAccessTokenSecret: string,
-    baseUrlPath: string,
-    method: string,
-    otherParams: {},
 }) => {
     const baseUrl = `${twitterApiURL}${baseUrlPath}`;
     const parameters = Object.assign({}, oauthParams, otherParams);
@@ -136,7 +124,7 @@ const getRequestToken = () => {
     });
 }
 
-const getAccessToken = ({ oauthRequestToken, oauthVerifier }: { oauthRequestToken: string, oauthVerifier: string }) => {
+const getAccessToken = ({ oauthRequestToken, oauthVerifier }) => {
     return getOauthParams(oauthRequestToken).then(oauthParams => {
         return fetchFromTwitter({
             oauthParams,
@@ -164,7 +152,7 @@ const getAccessToken = ({ oauthRequestToken, oauthVerifier }: { oauthRequestToke
     });
 };
 
-const getTimeline = ({ oauthAccessToken, oauthAccessTokenSecret }: { oauthAccessToken: string, oauthAccessTokenSecret: string }) => {
+const getTimeline = ({ oauthAccessToken, oauthAccessTokenSecret }) => {
     return getOauthParams(oauthAccessToken).then(oauthParams => {
         return fetchFromTwitter({
             oauthParams,
@@ -202,22 +190,22 @@ app.get('/auth/callback', (req, res, next) => {
     getAccessToken({ oauthRequestToken: req.query.oauth_token, oauthVerifier: req.query.oauth_verifier })
         .then(accessTokenResponse => {
             // TODO:
-            (<any>req.session).oauthAccessToken = accessTokenResponse.oauthToken;
-            (<any>req.session).oauthAccessTokenSecret = accessTokenResponse.oauthTokenSecret;
+            req.session.oauthAccessToken = accessTokenResponse.oauthToken;
+            req.session.oauthAccessTokenSecret = accessTokenResponse.oauthTokenSecret;
             res.redirect('/');
         })
         .catch(next);
 });
 app.get('/', (req, res, next) => {
     // TODO: If logged in helper
-    if ((<any>req.session).oauthAccessToken) {
+    if (req.session.oauthAccessToken) {
         getTimeline({
-            oauthAccessToken: (<any>req.session).oauthAccessToken,
-            oauthAccessTokenSecret: (<any>req.session).oauthAccessTokenSecret
+            oauthAccessToken: req.session.oauthAccessToken,
+            oauthAccessTokenSecret: req.session.oauthAccessTokenSecret
         })
             .then(tweets => {
                 res.send((
-                    `<ul>${tweets.map((tweet: any) => (
+                    `<ul>${tweets.map((tweet) => (
                         `<li>@${tweet.user.screen_name}: ${tweet.text}</li>`
                     )).join('')}</ul>`
                 ));
@@ -228,7 +216,7 @@ app.get('/', (req, res, next) => {
     }
 })
 
-const onListen = (server: Server): void => {
+const onListen = (server) => {
     const { port } = server.address();
 
     console.log(`Server running on port ${port}`);
