@@ -211,7 +211,6 @@ const getTimeline = ({ oauthAccessToken, oauthAccessTokenSecret }) => {
         })
             .then(response => response.json().then(json => {
                 if (response.ok) {
-                    // TODO: Model json
                     return json;
                 } else {
                     throw new Error(`Bad response from Twitter: ${response.status} ${JSON.stringify(json, null, '\t')}`)
