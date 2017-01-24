@@ -1,3 +1,4 @@
+import { FunctifiedAsync } from './functify'
 import { Server, createServer } from 'http';
 import express from 'express';
 import fetch from 'node-fetch';
@@ -152,6 +153,50 @@ const getAccessToken = ({ oauthRequestToken, oauthVerifier }) => {
     });
 };
 
+const flatten = (xs) => xs.reduce((acc, value) => acc.concat(value), [])
+
+const getWholeTimeline = ({ oauthAccessToken, oauthAccessTokenSecret }) => {
+    return getOauthParams(oauthAccessToken).then(oauthParams => {
+        const pageThroughTwitterTimeline = async function* () {
+            const recurse = async function* (maybeMaxId = undefined) {
+                const response = await fetchFromTwitter({
+                    oauthParams,
+                    oauthAccessTokenSecret,
+                    baseUrlPath: '/1.1/statuses/home_timeline.json',
+                    method: 'GET',
+                    // 200 is max
+                    otherParams: Object.assign({},
+                        {
+                            count: 200,
+                        },
+                        maybeMaxId !== undefined ? { max_id: maybeMaxId } : {}
+                    )
+                })
+                const json = await response.json();
+                if (response.ok) {
+                    yield json;
+                    const maybeLastTweet = json[json.length - 1];
+                    if (maybeLastTweet) {
+                        const lastTweet = maybeLastTweet;
+                        yield* recurse(lastTweet.id_str)
+                    } else {
+                        throw new Error('Expected last tweek')
+                    }
+                } else {
+                    throw new Error(`Bad response from Twitter: ${response.status} ${JSON.stringify(json, null, '\t')}`)
+                }
+            }
+
+            yield* recurse()
+        }
+
+        const resultsPromise = new FunctifiedAsync(pageThroughTwitterTimeline())
+            .take(4)
+            .toArray();
+        return resultsPromise.then(flatten)
+    })
+};
+
 const getTimeline = ({ oauthAccessToken, oauthAccessTokenSecret }) => {
     return getOauthParams(oauthAccessToken).then(oauthParams => {
         return fetchFromTwitter({
@@ -199,14 +244,14 @@ app.get('/auth/callback', (req, res, next) => {
 app.get('/', (req, res, next) => {
     // TODO: If logged in helper
     if (req.session.oauthAccessToken) {
-        getTimeline({
+        getWholeTimeline({
             oauthAccessToken: req.session.oauthAccessToken,
             oauthAccessTokenSecret: req.session.oauthAccessTokenSecret
         })
             .then(tweets => {
                 res.send((
                     `<ul>${tweets.map((tweet) => (
-                        `<li>@${tweet.user.screen_name}: ${tweet.text}</li>`
+                        `<li>${tweet.created_at} @${tweet.user.screen_name}: ${tweet.text}</li>`
                     )).join('')}</ul>`
                 ));
             })

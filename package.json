@@ -1,7 +1,7 @@
 {
   "private": true,
   "scripts": {
-    "start": "rm -rf target && mkdir target && babel --presets stage-3,env --out-dir ./target ./src/index.js && node ./target/src/index.js"
+    "start": "rm -rf target && mkdir target && babel --presets stage-3,env --out-dir ./target ./src/**/*.js && node ./entry.js"
   },
   "dependencies": {
     "denodeify": "^1.2.1",
