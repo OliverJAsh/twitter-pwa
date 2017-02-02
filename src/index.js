@@ -4,7 +4,7 @@ import express from 'express';
 import fetch from 'node-fetch';
 import { randomBytes as randomBytesCb } from 'crypto';
 import denodeify from 'denodeify';
-import { toPairs, sortBy } from 'lodash';
+import { uniqBy, toPairs, sortBy, flatten } from 'lodash';
 import { createHmac } from 'crypto';
 import session from 'express-session';
 
@@ -153,9 +153,10 @@ const getAccessToken = ({ oauthRequestToken, oauthVerifier }) => {
     });
 };
 
-const flatten = (xs) => xs.reduce((acc, value) => acc.concat(value), [])
-
-const getWholeTimeline = ({ oauthAccessToken, oauthAccessTokenSecret }) => {
+const getLatestPublication = ({ oauthAccessToken, oauthAccessTokenSecret }) => {
+    const limit = 800;
+    // This is the max allowed
+    const pageSize = 200;
     return getOauthParams(oauthAccessToken).then(oauthParams => {
         const pageThroughTwitterTimeline = async function* () {
             const recurse = async function* (maybeMaxId = undefined) {
@@ -164,10 +165,9 @@ const getWholeTimeline = ({ oauthAccessToken, oauthAccessTokenSecret }) => {
                     oauthAccessTokenSecret,
                     baseUrlPath: '/1.1/statuses/home_timeline.json',
                     method: 'GET',
-                    // 200 is max
                     otherParams: Object.assign({},
                         {
-                            count: 200,
+                            count: pageSize,
                         },
                         maybeMaxId !== undefined ? { max_id: maybeMaxId } : {}
                     )
@@ -190,33 +190,39 @@ const getWholeTimeline = ({ oauthAccessToken, oauthAccessTokenSecret }) => {
             yield* recurse()
         }
 
-        const resultsPromise = new FunctifiedAsync(pageThroughTwitterTimeline())
-            .take(4)
-            .toArray();
-        return resultsPromise.then(flatten)
-    })
-};
+        const nowDate = new Date()
+        const publicationHour = 6
+        const isTodaysDueForPublication = nowDate.getHours() >= publicationHour
+        // If the time is the past publication hour, the publication date is
+        // today else it is yesterday.
+        const publicationDate = new Date(
+            nowDate.getFullYear(),
+            nowDate.getMonth(),
+            nowDate.getDate() - (isTodaysDueForPublication ? 0 : 1),
+            publicationHour
+        )
+        // Publication date - 1 day
+        const previousPublicationDate = new Date(
+            publicationDate.getFullYear(),
+            publicationDate.getMonth(),
+            publicationDate.getDate() - 1,
+            publicationDate.getHours()
+        )
 
-const getTimeline = ({ oauthAccessToken, oauthAccessTokenSecret }) => {
-    return getOauthParams(oauthAccessToken).then(oauthParams => {
-        return fetchFromTwitter({
-            oauthParams,
-            oauthAccessTokenSecret,
-            baseUrlPath: '/1.1/statuses/home_timeline.json',
-            method: 'GET',
-            // 200 is max
-            otherParams: {
-                count: 200,
-            },
-        })
-            .then(response => response.json().then(json => {
-                if (response.ok) {
-                    return json;
-                } else {
-                    throw new Error(`Bad response from Twitter: ${response.status} ${JSON.stringify(json, null, '\t')}`)
-                }
-            }))
-    });
+        // Lazily page through tweets in the timeline to find the publication
+        // range.
+        const resultsPromise = new FunctifiedAsync(pageThroughTwitterTimeline())
+            .take(Math.ceil(limit / pageSize))
+            .flatten()
+            .dropWhile(tweet => new Date(tweet.created_at) >= publicationDate)
+            // TODO: Rename to takeWhile
+            // .takeWhile(tweet => new Date(tweet.created_at) >= previousPublicationDate)
+            .takeUntil(tweet => new Date(tweet.created_at) < previousPublicationDate)
+            .toArray();
+        return resultsPromise
+            .then(flatten)
+            .then(tweets => uniqBy(tweets, tweet => tweet.id_str))
+    })
 };
 
 // https://dev.twitter.com/web/sign-in/implementing
@@ -243,7 +249,7 @@ app.get('/auth/callback', (req, res, next) => {
 app.get('/', (req, res, next) => {
     // TODO: If logged in helper
     if (req.session.oauthAccessToken) {
-        getWholeTimeline({
+        getLatestPublication({
             oauthAccessToken: req.session.oauthAccessToken,
             oauthAccessTokenSecret: req.session.oauthAccessTokenSecret
         })

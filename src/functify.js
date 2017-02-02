@@ -19,7 +19,7 @@ export class FunctifiedAsync {
     }
 
 
-    skipWhile(predicate) {
+    dropWhile(predicate) {
         const iterable = this.iterable;
         return FunctifiedAsync.fromGenerator(async function* () {
             let skip = true;
