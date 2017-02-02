@@ -108,20 +108,22 @@ const getRequestToken = () => {
         method: 'POST',
         otherParams: {},
     })
-        .then(response => response.text().then(text => {
-            if (response.ok) {
-                const pairs = text
-                    .split('&')
-                    .map(item => item.split('='))
-                return {
-                    oauthToken: pairs.find(([ key, value ]) => key === 'oauth_token')[1],
-                    oauthTokenSecret: pairs.find(([ key, value ]) => key === 'oauth_token_secret')[1],
-                    oauthCallbackConfirmed: pairs.find(([ key, value ]) => key === 'oauth_callback_confirmed')[1]
+        .then(response => (
+            response.text().then(text => {
+                if (response.ok) {
+                    const pairs = text
+                        .split('&')
+                        .map(item => item.split('='))
+                    return {
+                        oauthToken: pairs.find(([ key, value ]) => key === 'oauth_token')[1],
+                        oauthTokenSecret: pairs.find(([ key, value ]) => key === 'oauth_token_secret')[1],
+                        oauthCallbackConfirmed: pairs.find(([ key, value ]) => key === 'oauth_callback_confirmed')[1]
+                    }
+                } else {
+                    throw new Error(`Bad response from Twitter: ${response.status} ${text}`)
                 }
-            } else {
-                throw new Error(`Bad response from Twitter: ${response.status} ${text}`)
-            }
-        }))
+            })
+        ))
 }
 
 const getAccessToken = ({ oauthRequestToken, oauthVerifier }) => {
@@ -132,22 +134,24 @@ const getAccessToken = ({ oauthRequestToken, oauthVerifier }) => {
         method: 'POST',
         otherParams: {},
     })
-        .then(response => response.text().then(text => {
-            if (response.ok) {
-                const pairs = text
-                    .split('&')
-                    .map(item => item.split('='))
-                return {
-                    oauthToken: pairs.find(([ key, value ]) => key === 'oauth_token')[1],
-                    oauthTokenSecret: pairs.find(([ key, value ]) => key === 'oauth_token_secret')[1],
-                    userId: pairs.find(([ key, value ]) => key === 'user_id')[1],
-                    screenName: pairs.find(([ key, value ]) => key === 'screen_name')[1],
-                    xAuthExpires: pairs.find(([ key, value ]) => key === 'x_auth_expires')[1]
+        .then(response => (
+            response.text().then(text => {
+                if (response.ok) {
+                    const pairs = text
+                        .split('&')
+                        .map(item => item.split('='))
+                    return {
+                        oauthToken: pairs.find(([ key, value ]) => key === 'oauth_token')[1],
+                        oauthTokenSecret: pairs.find(([ key, value ]) => key === 'oauth_token_secret')[1],
+                        userId: pairs.find(([ key, value ]) => key === 'user_id')[1],
+                        screenName: pairs.find(([ key, value ]) => key === 'screen_name')[1],
+                        xAuthExpires: pairs.find(([ key, value ]) => key === 'x_auth_expires')[1]
+                    }
+                } else {
+                    throw new Error(`Bad response from Twitter: ${response.status} ${text}`)
                 }
-            } else {
-                throw new Error(`Bad response from Twitter: ${response.status} ${text}`)
-            }
-        }))
+            })
+        ))
 };
 
 const limit = 800;
