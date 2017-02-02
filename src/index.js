@@ -2,6 +2,7 @@ import { FunctifiedAsync } from './functify'
 import { Server, createServer } from 'http';
 import express from 'express';
 import fetch from 'node-fetch';
+import querystring from 'querystring';
 import { randomBytes as randomBytesCb } from 'crypto';
 import denodeify from 'denodeify';
 import { uniqBy, toPairs, sortBy, flatten } from 'lodash';
@@ -111,13 +112,11 @@ const getRequestToken = () => {
         .then(response => (
             response.text().then(text => {
                 if (response.ok) {
-                    const pairs = text
-                        .split('&')
-                        .map(item => item.split('='))
+                    const parsed = querystring.parse(text)
                     return {
-                        oauthToken: pairs.find(([ key, value ]) => key === 'oauth_token')[1],
-                        oauthTokenSecret: pairs.find(([ key, value ]) => key === 'oauth_token_secret')[1],
-                        oauthCallbackConfirmed: pairs.find(([ key, value ]) => key === 'oauth_callback_confirmed')[1]
+                        oauthToken: parsed.oauth_token,
+                        oauthTokenSecret: parsed.oauth_token_secret,
+                        oauthCallbackConfirmed: parsed.oauth_callback_confirmed,
                     }
                 } else {
                     throw new Error(`Bad response from Twitter: ${response.status} ${text}`)
@@ -137,15 +136,13 @@ const getAccessToken = ({ oauthRequestToken, oauthVerifier }) => {
         .then(response => (
             response.text().then(text => {
                 if (response.ok) {
-                    const pairs = text
-                        .split('&')
-                        .map(item => item.split('='))
+                    const parsed = querystring.parse(text)
                     return {
-                        oauthToken: pairs.find(([ key, value ]) => key === 'oauth_token')[1],
-                        oauthTokenSecret: pairs.find(([ key, value ]) => key === 'oauth_token_secret')[1],
-                        userId: pairs.find(([ key, value ]) => key === 'user_id')[1],
-                        screenName: pairs.find(([ key, value ]) => key === 'screen_name')[1],
-                        xAuthExpires: pairs.find(([ key, value ]) => key === 'x_auth_expires')[1]
+                        oauthToken: parsed.oauth_token,
+                        oauthTokenSecret: parsed.oauth_token_secret,
+                        userId: parsed.user_id,
+                        screenName: parsed.screen_name,
+                        xAuthExpires: parsed.x_auth_expires,
                     }
                 } else {
                     throw new Error(`Bad response from Twitter: ${response.status} ${text}`)
