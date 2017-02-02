@@ -71,159 +71,155 @@ const getOauthParams = (maybeOAuthRequestOrAccessToken) => (
 );
 
 const fetchFromTwitter = ({
-    oauthParams,
+    maybeOAuthRequestOrAccessToken,
     oauthAccessTokenSecret,
     baseUrlPath,
     method,
     otherParams,
 }) => {
-    const baseUrl = `${twitterApiURL}${baseUrlPath}`;
-    const parameters = Object.assign({}, oauthParams, otherParams);
-    const oauthSignature = createOauthSignature({
-        method,
-        baseUrl,
-        parameters,
-        oauthTokenSecret: oauthAccessTokenSecret
-    });
-    const oauthHeader = oauthHeaderFromObj(
-        Object.assign({}, oauthParams, { oauth_signature: oauthSignature })
-    );
+    return getOauthParams(maybeOAuthRequestOrAccessToken).then(oauthParams => {
+        const baseUrl = `${twitterApiURL}${baseUrlPath}`;
+        const parameters = Object.assign({}, oauthParams, otherParams);
+        const oauthSignature = createOauthSignature({
+            method,
+            baseUrl,
+            parameters,
+            oauthTokenSecret: oauthAccessTokenSecret
+        });
+        const oauthHeader = oauthHeaderFromObj(
+            Object.assign({}, oauthParams, { oauth_signature: oauthSignature })
+        );
 
-    const paramsStr = Object.keys(otherParams).length > 0
-        ? `?${stringifyQueryParamsObj(otherParams)}`
-        : '';
-    const url = `${baseUrl}${paramsStr}`;
-    return fetch(url, {
-        method,
-        headers: { 'Authorization': `OAuth ${oauthHeader}` }
-    })
+        const paramsStr = Object.keys(otherParams).length > 0
+            ? `?${stringifyQueryParamsObj(otherParams)}`
+            : '';
+        const url = `${baseUrl}${paramsStr}`;
+        return fetch(url, {
+            method,
+            headers: { 'Authorization': `OAuth ${oauthHeader}` }
+        })
+    });
 }
 
 const getRequestToken = () => {
-    return getOauthParams().then(oauthParams => {
-        return fetchFromTwitter({
-            oauthParams,
-            oauthAccessTokenSecret: '',
-            baseUrlPath: `/oauth/request_token`,
-            method: 'POST',
-            otherParams: {},
-        })
-            .then(response => response.text().then(text => {
-                if (response.ok) {
-                    const pairs = text
-                        .split('&')
-                        .map(item => item.split('='))
-                    return {
-                        oauthToken: pairs.find(([ key, value ]) => key === 'oauth_token')[1],
-                        oauthTokenSecret: pairs.find(([ key, value ]) => key === 'oauth_token_secret')[1],
-                        oauthCallbackConfirmed: pairs.find(([ key, value ]) => key === 'oauth_callback_confirmed')[1]
-                    }
-                } else {
-                    throw new Error(`Bad response from Twitter: ${response.status} ${text}`)
+    return fetchFromTwitter({
+        oauthAccessTokenSecret: '',
+        baseUrlPath: `/oauth/request_token`,
+        method: 'POST',
+        otherParams: {},
+    })
+        .then(response => response.text().then(text => {
+            if (response.ok) {
+                const pairs = text
+                    .split('&')
+                    .map(item => item.split('='))
+                return {
+                    oauthToken: pairs.find(([ key, value ]) => key === 'oauth_token')[1],
+                    oauthTokenSecret: pairs.find(([ key, value ]) => key === 'oauth_token_secret')[1],
+                    oauthCallbackConfirmed: pairs.find(([ key, value ]) => key === 'oauth_callback_confirmed')[1]
                 }
-            }))
-    });
+            } else {
+                throw new Error(`Bad response from Twitter: ${response.status} ${text}`)
+            }
+        }))
 }
 
 const getAccessToken = ({ oauthRequestToken, oauthVerifier }) => {
-    return getOauthParams(oauthRequestToken).then(oauthParams => {
-        return fetchFromTwitter({
-            oauthParams,
-            oauthAccessTokenSecret: '',
-            baseUrlPath: `/oauth/access_token?oauth_verifier=${oauthVerifier}`,
-            method: 'POST',
-            otherParams: {},
-        })
-            .then(response => response.text().then(text => {
-                if (response.ok) {
-                    const pairs = text
-                        .split('&')
-                        .map(item => item.split('='))
-                    return {
-                        oauthToken: pairs.find(([ key, value ]) => key === 'oauth_token')[1],
-                        oauthTokenSecret: pairs.find(([ key, value ]) => key === 'oauth_token_secret')[1],
-                        userId: pairs.find(([ key, value ]) => key === 'user_id')[1],
-                        screenName: pairs.find(([ key, value ]) => key === 'screen_name')[1],
-                        xAuthExpires: pairs.find(([ key, value ]) => key === 'x_auth_expires')[1]
-                    }
-                } else {
-                    throw new Error(`Bad response from Twitter: ${response.status} ${text}`)
+    return fetchFromTwitter({
+        maybeOAuthRequestOrAccessToken: oauthRequestToken,
+        oauthAccessTokenSecret: '',
+        baseUrlPath: `/oauth/access_token?oauth_verifier=${oauthVerifier}`,
+        method: 'POST',
+        otherParams: {},
+    })
+        .then(response => response.text().then(text => {
+            if (response.ok) {
+                const pairs = text
+                    .split('&')
+                    .map(item => item.split('='))
+                return {
+                    oauthToken: pairs.find(([ key, value ]) => key === 'oauth_token')[1],
+                    oauthTokenSecret: pairs.find(([ key, value ]) => key === 'oauth_token_secret')[1],
+                    userId: pairs.find(([ key, value ]) => key === 'user_id')[1],
+                    screenName: pairs.find(([ key, value ]) => key === 'screen_name')[1],
+                    xAuthExpires: pairs.find(([ key, value ]) => key === 'x_auth_expires')[1]
                 }
-            }))
-    });
+            } else {
+                throw new Error(`Bad response from Twitter: ${response.status} ${text}`)
+            }
+        }))
 };
+
+const limit = 800;
+// This is the max allowed
+const pageSize = 200;
 
 const getLatestPublication = ({ oauthAccessToken, oauthAccessTokenSecret }) => {
-    const limit = 800;
-    // This is the max allowed
-    const pageSize = 200;
-    return getOauthParams(oauthAccessToken).then(oauthParams => {
-        const pageThroughTwitterTimeline = async function* () {
-            const recurse = async function* (maybeMaxId = undefined) {
-                const response = await fetchFromTwitter({
-                    oauthParams,
-                    oauthAccessTokenSecret,
-                    baseUrlPath: '/1.1/statuses/home_timeline.json',
-                    method: 'GET',
-                    otherParams: Object.assign({},
-                        {
-                            count: pageSize,
-                        },
-                        maybeMaxId !== undefined ? { max_id: maybeMaxId } : {}
-                    )
-                })
-                const json = await response.json();
-                if (response.ok) {
-                    yield json;
-                    const maybeLastTweet = json[json.length - 1];
-                    if (maybeLastTweet) {
-                        const lastTweet = maybeLastTweet;
-                        yield* recurse(lastTweet.id_str)
-                    } else {
-                        throw new Error('Expected last tweek')
-                    }
-                } else {
-                    throw new Error(`Bad response from Twitter: ${response.status} ${JSON.stringify(json, null, '\t')}`)
-                }
-            }
+    const nowDate = new Date()
+    const publicationHour = 6
+    const isTodaysDueForPublication = nowDate.getHours() >= publicationHour
+    // If the time is the past publication hour, the publication date is
+    // today else it is yesterday.
+    const publicationDate = new Date(
+        nowDate.getFullYear(),
+        nowDate.getMonth(),
+        nowDate.getDate() - (isTodaysDueForPublication ? 0 : 1),
+        publicationHour
+    )
+    // Publication date - 1 day
+    const previousPublicationDate = new Date(
+        publicationDate.getFullYear(),
+        publicationDate.getMonth(),
+        publicationDate.getDate() - 1,
+        publicationDate.getHours()
+    )
 
-            yield* recurse()
-        }
-
-        const nowDate = new Date()
-        const publicationHour = 6
-        const isTodaysDueForPublication = nowDate.getHours() >= publicationHour
-        // If the time is the past publication hour, the publication date is
-        // today else it is yesterday.
-        const publicationDate = new Date(
-            nowDate.getFullYear(),
-            nowDate.getMonth(),
-            nowDate.getDate() - (isTodaysDueForPublication ? 0 : 1),
-            publicationHour
-        )
-        // Publication date - 1 day
-        const previousPublicationDate = new Date(
-            publicationDate.getFullYear(),
-            publicationDate.getMonth(),
-            publicationDate.getDate() - 1,
-            publicationDate.getHours()
-        )
-
-        // Lazily page through tweets in the timeline to find the publication
-        // range.
-        const resultsPromise = new FunctifiedAsync(pageThroughTwitterTimeline())
-            .take(Math.ceil(limit / pageSize))
-            .flatten()
-            .dropWhile(tweet => new Date(tweet.created_at) >= publicationDate)
-            // TODO: Rename to takeWhile
-            // .takeWhile(tweet => new Date(tweet.created_at) >= previousPublicationDate)
-            .takeUntil(tweet => new Date(tweet.created_at) < previousPublicationDate)
-            .toArray();
-        return resultsPromise
-            .then(flatten)
-            .then(tweets => uniqBy(tweets, tweet => tweet.id_str))
-    })
+    // Lazily page through tweets in the timeline to find the publication
+    // range.
+    const resultsPromise = new FunctifiedAsync(pageThroughTwitterTimeline({ oauthAccessToken, oauthAccessTokenSecret }))
+        .take(Math.ceil(limit / pageSize))
+        .flatten()
+        .dropWhile(tweet => new Date(tweet.created_at) >= publicationDate)
+        // TODO: Rename to takeWhile
+        // .takeWhile(tweet => new Date(tweet.created_at) >= previousPublicationDate)
+        .takeUntil(tweet => new Date(tweet.created_at) < previousPublicationDate)
+        .toArray();
+    return resultsPromise
+        .then(flatten)
+        .then(tweets => uniqBy(tweets, tweet => tweet.id_str))
 };
+
+const pageThroughTwitterTimeline = async function* ({ oauthAccessToken, oauthAccessTokenSecret }) {
+    const recurse = async function* (maybeMaxId = undefined) {
+        const response = await fetchFromTwitter({
+            maybeOAuthRequestOrAccessToken: oauthAccessToken,
+            oauthAccessTokenSecret,
+            baseUrlPath: '/1.1/statuses/home_timeline.json',
+            method: 'GET',
+            otherParams: Object.assign({},
+                {
+                    count: pageSize,
+                },
+                maybeMaxId !== undefined ? { max_id: maybeMaxId } : {}
+            )
+        })
+        const json = await response.json();
+        if (response.ok) {
+            yield json;
+            const maybeLastTweet = json[json.length - 1];
+            if (maybeLastTweet) {
+                const lastTweet = maybeLastTweet;
+                yield* recurse(lastTweet.id_str)
+            } else {
+                throw new Error('Expected last tweek')
+            }
+        } else {
+            throw new Error(`Bad response from Twitter: ${response.status} ${JSON.stringify(json, null, '\t')}`)
+        }
+    }
+
+    yield* recurse()
+}
 
 // https://dev.twitter.com/web/sign-in/implementing
 app.get('/auth', (req, res, next) => {
