@@ -7,7 +7,7 @@
     "denodeify": "^1.2.1",
     "express": "^4.13.3",
     "express-session": "^1.13.0",
-    "lodash": "^4.7.0",
+    "lodash": "^4.17.4",
     "node-fetch": "^1.5.0"
   },
   "devDependencies": {
