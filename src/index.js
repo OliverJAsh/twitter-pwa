@@ -211,7 +211,7 @@ const pageThroughTwitterTimeline = async function* ({ oauthAccessToken, oauthAcc
                 const lastTweet = maybeLastTweet;
                 yield* recurse(lastTweet.id_str)
             } else {
-                throw new Error('Expected last tweek')
+                throw new Error('Expected last tweet')
             }
         } else {
             throw new Error(`Bad response from Twitter: ${response.status} ${JSON.stringify(json, null, '\t')}`)
