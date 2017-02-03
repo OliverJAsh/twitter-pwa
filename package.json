@@ -4,6 +4,7 @@
     "start": "rm -rf target && mkdir target && babel --presets stage-3,env --out-dir ./target ./src/**/*.js && node ./entry.js"
   },
   "dependencies": {
+    "data.either": "^1.5.0",
     "denodeify": "^1.2.1",
     "express": "^4.13.3",
     "express-session": "^1.13.0",

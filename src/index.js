@@ -1,11 +1,12 @@
 import { FunctifiedAsync } from './functify'
 import { Server, createServer } from 'http';
 import express from 'express';
+import Either from 'data.either';
 import fetch from 'node-fetch';
 import querystring from 'querystring';
 import { randomBytes as randomBytesCb } from 'crypto';
 import denodeify from 'denodeify';
-import { uniqBy, toPairs, sortBy, flatten } from 'lodash';
+import { max, uniqBy, toPairs, sortBy, flatten } from 'lodash';
 import { createHmac } from 'crypto';
 import session from 'express-session';
 
@@ -151,11 +152,48 @@ const getAccessToken = ({ oauthRequestToken, oauthVerifier }) => {
         ))
 };
 
+class ApiError {
+    constructor(props) { // { statusCode: number, message: string }
+        Object.assign(this, props)
+    }
+}
+
+class ApiErrors {
+    constructor(props) { // { errors: Array<ApiError> }
+        this.statusCode = max(props.errors.map(error => error.statusCode))
+        this.errors = props.errors;
+    }
+}
+
+// type ApiResponse<T> = Either<ApiErrors, T>
+
+const concatApiResponses = (apiResponse1, apiResponse2) => (
+    apiResponse2.fold(
+        apiErrors => Either.Left(
+            apiResponse1.fold(
+                // TODO: Will this error happen? Should we aggregate?
+                // Ideally this function would be general
+                _ => apiErrors,
+                // apiErrors => apiErrors.concat(apiErrors2),
+                tweets => apiErrors
+            )
+        ),
+        tweet => apiResponse1.map(tweets => tweets.concat(tweet)),
+    )
+)
+
+const mergeApiResponses = apiResponses => (
+    // Array<Either<Left, Right>> => Either<Left, Array<Right>>
+    // Array<Either<Left, Right>> => Either<Array<Left>, Array<Right>>
+    // ApiResponse<Tweet>[] => ApiResponse<Tweet[]>
+    apiResponses.reduce(concatApiResponses, Either.Right([]))
+);
+
 const limit = 800;
 // This is the max allowed
 const pageSize = 200;
 
-const getLatestPublication = ({ oauthAccessToken, oauthAccessTokenSecret }) => {
+const getLatestPublication = async ({ oauthAccessToken, oauthAccessTokenSecret }) => {
     const nowDate = new Date()
     const publicationHour = 6
     const isTodaysDueForPublication = nowDate.getHours() >= publicationHour
@@ -177,17 +215,38 @@ const getLatestPublication = ({ oauthAccessToken, oauthAccessTokenSecret }) => {
 
     // Lazily page through tweets in the timeline to find the publication
     // range.
-    const resultsPromise = new FunctifiedAsync(pageThroughTwitterTimeline({ oauthAccessToken, oauthAccessTokenSecret }))
+    // AsyncIterable<ApiResponse<Tweet>>
+    const tweetApiResponses = await new FunctifiedAsync(pageThroughTwitterTimeline({ oauthAccessToken, oauthAccessTokenSecret }))
+        // Never take more than the known limit
+        // We request by max ID which means the the paging could continue
+        // infinitely.
+        // We're not forcing x requests, this is a limit applied lazily.
         .take(Math.ceil(limit / pageSize))
-        .flatten()
-        .dropWhile(tweet => new Date(tweet.created_at) >= publicationDate)
+        // Either<Left, Array<Right>> => Array<Either<Left, Right>>
+        // Move the array to the outside, so we can flatten
+        .map(apiResponse => ( // ApiResponse<Array<Tweet>> => Array<ApiResponse<Tweet>>
+            apiResponse.fold(
+                apiErrors => [Either.Left(apiErrors)],
+                tweets => tweets.map(tweet => Either.Right(tweet))
+            )
+        ))
+        .flatten() // ApiResponse<Tweet>[] => ApiResponse<Tweet>
+        .dropWhile(apiResponse => (
+            apiResponse
+                .map(tweet => new Date(tweet.created_at) >= publicationDate)
+                .getOrElse(false)
+        ))
         // TODO: Rename to takeWhile
-        // .takeWhile(tweet => new Date(tweet.created_at) >= previousPublicationDate)
-        .takeUntil(tweet => new Date(tweet.created_at) < previousPublicationDate)
+        .takeUntil(apiResponse => (
+            apiResponse
+                .map(tweet => new Date(tweet.created_at) < previousPublicationDate)
+                .getOrElse(false)
+        ))
         .toArray();
-    return resultsPromise
-        .then(flatten)
-        .then(tweets => uniqBy(tweets, tweet => tweet.id_str))
+    // ApiResponse<Array<Tweet>>
+    const tweetsApiResponse = await mergeApiResponses(tweetApiResponses)
+
+    return tweetsApiResponse.map(tweets => uniqBy(tweets, tweet => tweet.id_str))
 };
 
 const pageThroughTwitterTimeline = async function* ({ oauthAccessToken, oauthAccessTokenSecret }) {
@@ -206,16 +265,36 @@ const pageThroughTwitterTimeline = async function* ({ oauthAccessToken, oauthAcc
         })
         const json = await response.json();
         if (response.ok) {
-            yield json;
+            yield Either.Right(json);
             const maybeLastTweet = json[json.length - 1];
             if (maybeLastTweet) {
                 const lastTweet = maybeLastTweet;
                 yield* recurse(lastTweet.id_str)
             } else {
-                throw new Error('Expected last tweet')
+                yield Either.Left(new ApiErrors([
+                    new ApiError({
+                        statusCode: 500,
+                        message: 'Expected tweet' })
+                    ]
+                ))
             }
         } else {
-            throw new Error(`Bad response from Twitter: ${response.status} ${JSON.stringify(json, null, '\t')}`)
+            if (response.status === 429) {
+                yield Either.Left(new ApiErrors([
+                    new ApiError({
+                        statusCode: 429,
+                        message: 'Twitter API rate limit exceeded'
+                    })
+                ]))
+            } else {
+                yield Either.Left(new ApiErrors([
+                    new ApiError({
+                        statusCode: 500,
+                        // TODO: Include actual "unknown" errors here
+                        message: 'Unknown error response from Twitter API'
+                    })
+                ]))
+            }
         }
     }
 
@@ -250,12 +329,24 @@ app.get('/', (req, res, next) => {
             oauthAccessToken: req.session.oauthAccessToken,
             oauthAccessTokenSecret: req.session.oauthAccessTokenSecret
         })
-            .then(tweets => {
-                res.send((
-                    `<ul>${tweets.map((tweet) => (
-                        `<li>${tweet.created_at} @${tweet.user.screen_name}: ${tweet.text}</li>`
-                    )).join('')}</ul>`
-                ));
+            .then(apiResponse => {
+                apiResponse.cata({
+                    Left: apiErrors => {
+                        const messages = apiErrors.errors.map(error => error.message)
+                        res
+                            .status(apiErrors.statusCode)
+                            .send(
+                                `<p>Errors:</p><ul>${messages.map(message => (
+                                    `<li>${message}</li>`
+                                )).join(' ')}</ul>`
+                            )
+                    },
+                    Right: tweets => res.send((
+                        `<ol>${tweets.map((tweet) => (
+                            `<li>${tweet.created_at} @${tweet.user.screen_name}: ${tweet.text}</li>`
+                        )).join('')}</ul>`
+                    ))
+                })
             })
             .catch(next);
     } else {
