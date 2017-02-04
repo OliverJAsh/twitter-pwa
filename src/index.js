@@ -1,8 +1,7 @@
 import { FunctifiedAsync } from './functify'
 import { Server, createServer } from 'http';
 import express from 'express';
-import Either from 'data.either';
-import monads from 'control.monads';
+import Validation from 'data.validation';
 import fetch from 'node-fetch';
 import querystring from 'querystring';
 import { randomBytes as randomBytesCb } from 'crypto';
@@ -166,7 +165,7 @@ class ApiErrors {
     }
 }
 
-// type ApiResponse<T> = Either<ApiErrors, T>
+// type ApiResponse<T> = Validation<Array<ApiError>, T>
 
 const limit = 800;
 // This is the max allowed
@@ -188,41 +187,44 @@ const pageThroughTwitterTimeline = async function* ({ oauthAccessToken, oauthAcc
         })
         const json = await response.json();
         if (response.ok) {
-            yield Either.Right(json);
+            yield Validation.Success(json);
             const maybeLastTweet = json[json.length - 1];
             if (maybeLastTweet) {
                 const lastTweet = maybeLastTweet;
                 yield* recurse(lastTweet.id_str)
             } else {
-                yield Either.Left(new ApiErrors([
-                    new ApiError({
-                        statusCode: 500,
-                        message: 'Expected tweet' })
-                    ]
-                ))
+                yield Validation.Failure([new ApiError({
+                    statusCode: 500,
+                    message: 'Expected tweet'
+                })])
             }
         } else {
             if (response.status === 429) {
-                yield Either.Left(new ApiErrors([
-                    new ApiError({
-                        statusCode: 429,
-                        message: 'Twitter API rate limit exceeded'
-                    })
-                ]))
+                yield Validation.Failure([new ApiError({
+                    statusCode: 429,
+                    message: 'Twitter API rate limit exceeded'
+                })])
             } else {
-                yield Either.Left(new ApiErrors([
-                    new ApiError({
-                        statusCode: 500,
-                        // TODO: Include actual "unknown" errors here
-                        message: 'Unknown error response from Twitter API'
-                    })
-                ]))
+                yield Validation.Failure([new ApiError({
+                    statusCode: 500,
+                    // TODO: Include actual "unknown" errors here
+                    message: 'Unknown error response from Twitter API'
+                })])
             }
         }
     }
 
     yield* recurse()
 }
+
+// Array<Validation<A, B>> => Validation<Array<A>, Array<B>>
+// https://github.com/origamitower/folktale/issues/71
+const sequenceValidations = validations => (
+    validations
+        .reduce((acc, validation) => (
+            Validation.Success(a => b => a.concat(b)).ap(acc).ap(validation)
+        ), Validation.of([]))
+)
 
 const getLatestPublication = async ({ oauthAccessToken, oauthAccessTokenSecret }) => {
     const nowDate = new Date()
@@ -253,12 +255,12 @@ const getLatestPublication = async ({ oauthAccessToken, oauthAccessTokenSecret }
         // We're not forcing x requests, this is a limit applied lazily.
         .take(Math.ceil(limit / pageSize))
         // Move the array to the outside, so we can flatten the inner iterable
-        // AsyncIterable<Either<Left, Array<Right>>> => AsyncIterable<Array<Either<Left, Right>>>
+        // AsyncIterable<Validation<Left, Array<Right>>> => AsyncIterable<Array<Validation<Left, Right>>>
         // AsyncIterable<ApiResponse<Array<Tweet>>> => AsyncIterable<Array<ApiResponse<Tweet>>>
         .map(apiResponse => (
             apiResponse.fold(
-                apiErrors => [Either.Left(apiErrors)],
-                tweets => tweets.map(tweet => Either.Right(tweet))
+                apiErrorsList => [Validation.Failure(apiErrorsList)],
+                tweets => tweets.map(tweet => Validation.Success(tweet))
             )
         ))
         .flatten() // AsyncIterable<Array<ApiResponse<Tweet>>> => AsyncIterable<ApiResponse<Tweet>>
@@ -274,12 +276,7 @@ const getLatestPublication = async ({ oauthAccessToken, oauthAccessTokenSecret }
                 .getOrElse(false)
         ))
         .toArray();
-    // Array<ApiResponse<Tweet>> => ApiResponse<Array<Tweet>>
-    // Array<Either<Left, Right>> => Either<Array<Left>, Array<Right>>
-    // http://folktalegithubio.readthedocs.io/en/latest/api/control/monads/index.html?highlight=sequence#control.monads.control.monads.sequence
-    // If we wanted to aggregate the left (failures), we could use the
-    // Validation type.
-    const tweetsApiResponse = monads.sequence(Either, tweetApiResponses)
+    const tweetsApiResponse = sequenceValidations(tweetApiResponses)
 
     // Since the max ID parameter is inclusive, there will be duplicates where
     // the pages interleave. This removes them.
@@ -316,7 +313,8 @@ app.get('/', (req, res, next) => {
         })
             .then(apiResponse => {
                 apiResponse.cata({
-                    Left: apiErrors => {
+                    Failure: apiErrorsList => {
+                        const apiErrors = new ApiErrors(apiErrorsList)
                         const messages = apiErrors.errors.map(error => error.message)
                         res
                             .status(apiErrors.statusCode)
@@ -326,7 +324,7 @@ app.get('/', (req, res, next) => {
                                 )).join(' ')}</ul>`
                             )
                     },
-                    Right: tweets => res.send((
+                    Success: tweets => res.send((
                         `<ol>${tweets.map((tweet) => (
                             `<li>${tweet.created_at} @${tweet.user.screen_name}: ${tweet.text}</li>`
                         )).join('')}</ul>`
