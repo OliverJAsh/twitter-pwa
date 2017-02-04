@@ -193,6 +193,58 @@ const limit = 800;
 // This is the max allowed
 const pageSize = 200;
 
+const pageThroughTwitterTimeline = async function* ({ oauthAccessToken, oauthAccessTokenSecret }) {
+    const recurse = async function* (maybeMaxId = undefined) {
+        const response = await fetchFromTwitter({
+            maybeOAuthRequestOrAccessToken: oauthAccessToken,
+            oauthAccessTokenSecret,
+            baseUrlPath: '/1.1/statuses/home_timeline.json',
+            method: 'GET',
+            otherParams: Object.assign({},
+                {
+                    count: pageSize,
+                },
+                maybeMaxId !== undefined ? { max_id: maybeMaxId } : {}
+            )
+        })
+        const json = await response.json();
+        if (response.ok) {
+            yield Either.Right(json);
+            const maybeLastTweet = json[json.length - 1];
+            if (maybeLastTweet) {
+                const lastTweet = maybeLastTweet;
+                yield* recurse(lastTweet.id_str)
+            } else {
+                yield Either.Left(new ApiErrors([
+                    new ApiError({
+                        statusCode: 500,
+                        message: 'Expected tweet' })
+                    ]
+                ))
+            }
+        } else {
+            if (response.status === 429) {
+                yield Either.Left(new ApiErrors([
+                    new ApiError({
+                        statusCode: 429,
+                        message: 'Twitter API rate limit exceeded'
+                    })
+                ]))
+            } else {
+                yield Either.Left(new ApiErrors([
+                    new ApiError({
+                        statusCode: 500,
+                        // TODO: Include actual "unknown" errors here
+                        message: 'Unknown error response from Twitter API'
+                    })
+                ]))
+            }
+        }
+    }
+
+    yield* recurse()
+}
+
 const getLatestPublication = async ({ oauthAccessToken, oauthAccessTokenSecret }) => {
     const nowDate = new Date()
     const publicationHour = 6
@@ -248,58 +300,6 @@ const getLatestPublication = async ({ oauthAccessToken, oauthAccessTokenSecret }
 
     return tweetsApiResponse.map(tweets => uniqBy(tweets, tweet => tweet.id_str))
 };
-
-const pageThroughTwitterTimeline = async function* ({ oauthAccessToken, oauthAccessTokenSecret }) {
-    const recurse = async function* (maybeMaxId = undefined) {
-        const response = await fetchFromTwitter({
-            maybeOAuthRequestOrAccessToken: oauthAccessToken,
-            oauthAccessTokenSecret,
-            baseUrlPath: '/1.1/statuses/home_timeline.json',
-            method: 'GET',
-            otherParams: Object.assign({},
-                {
-                    count: pageSize,
-                },
-                maybeMaxId !== undefined ? { max_id: maybeMaxId } : {}
-            )
-        })
-        const json = await response.json();
-        if (response.ok) {
-            yield Either.Right(json);
-            const maybeLastTweet = json[json.length - 1];
-            if (maybeLastTweet) {
-                const lastTweet = maybeLastTweet;
-                yield* recurse(lastTweet.id_str)
-            } else {
-                yield Either.Left(new ApiErrors([
-                    new ApiError({
-                        statusCode: 500,
-                        message: 'Expected tweet' })
-                    ]
-                ))
-            }
-        } else {
-            if (response.status === 429) {
-                yield Either.Left(new ApiErrors([
-                    new ApiError({
-                        statusCode: 429,
-                        message: 'Twitter API rate limit exceeded'
-                    })
-                ]))
-            } else {
-                yield Either.Left(new ApiErrors([
-                    new ApiError({
-                        statusCode: 500,
-                        // TODO: Include actual "unknown" errors here
-                        message: 'Unknown error response from Twitter API'
-                    })
-                ]))
-            }
-        }
-    }
-
-    yield* recurse()
-}
 
 // https://dev.twitter.com/web/sign-in/implementing
 app.get('/auth', (req, res, next) => {
