@@ -2,6 +2,7 @@ import { FunctifiedAsync } from './functify'
 import { Server, createServer } from 'http';
 import express from 'express';
 import Either from 'data.either';
+import monads from 'control.monads';
 import fetch from 'node-fetch';
 import querystring from 'querystring';
 import { randomBytes as randomBytesCb } from 'crypto';
@@ -159,35 +160,13 @@ class ApiError {
 }
 
 class ApiErrors {
-    constructor(props) { // { errors: Array<ApiError> }
-        this.statusCode = max(props.errors.map(error => error.statusCode))
-        this.errors = props.errors;
+    constructor(errors) { // Array<ApiError>
+        this.statusCode = max(errors.map(error => error.statusCode))
+        this.errors = errors;
     }
 }
 
 // type ApiResponse<T> = Either<ApiErrors, T>
-
-const concatApiResponses = (apiResponse1, apiResponse2) => (
-    apiResponse2.fold(
-        apiErrors => Either.Left(
-            apiResponse1.fold(
-                // TODO: Will this error happen? Should we aggregate?
-                // Ideally this function would be general
-                _ => apiErrors,
-                // apiErrors => apiErrors.concat(apiErrors2),
-                tweets => apiErrors
-            )
-        ),
-        tweet => apiResponse1.map(tweets => tweets.concat(tweet)),
-    )
-)
-
-const mergeApiResponses = apiResponses => (
-    // Array<Either<Left, Right>> => Either<Left, Array<Right>>
-    // Array<Either<Left, Right>> => Either<Array<Left>, Array<Right>>
-    // ApiResponse<Tweet>[] => ApiResponse<Tweet[]>
-    apiResponses.reduce(concatApiResponses, Either.Right([]))
-);
 
 const limit = 800;
 // This is the max allowed
@@ -267,22 +246,22 @@ const getLatestPublication = async ({ oauthAccessToken, oauthAccessTokenSecret }
 
     // Lazily page through tweets in the timeline to find the publication
     // range.
-    // AsyncIterable<ApiResponse<Tweet>>
+    // Array<ApiResponse<Tweet>>
     const tweetApiResponses = await new FunctifiedAsync(pageThroughTwitterTimeline({ oauthAccessToken, oauthAccessTokenSecret }))
-        // Never take more than the known limit
-        // We request by max ID which means the the paging could continue
-        // infinitely.
+        // We request by max ID, and since the response is inclusive of the max
+        // ID tweet, the paging could continue infinitely. This prevents that.
         // We're not forcing x requests, this is a limit applied lazily.
         .take(Math.ceil(limit / pageSize))
-        // Either<Left, Array<Right>> => Array<Either<Left, Right>>
-        // Move the array to the outside, so we can flatten
-        .map(apiResponse => ( // ApiResponse<Array<Tweet>> => Array<ApiResponse<Tweet>>
+        // Move the array to the outside, so we can flatten the inner iterable
+        // AsyncIterable<Either<Left, Array<Right>>> => AsyncIterable<Array<Either<Left, Right>>>
+        // AsyncIterable<ApiResponse<Array<Tweet>>> => AsyncIterable<Array<ApiResponse<Tweet>>>
+        .map(apiResponse => (
             apiResponse.fold(
                 apiErrors => [Either.Left(apiErrors)],
                 tweets => tweets.map(tweet => Either.Right(tweet))
             )
         ))
-        .flatten() // ApiResponse<Tweet>[] => ApiResponse<Tweet>
+        .flatten() // AsyncIterable<Array<ApiResponse<Tweet>>> => AsyncIterable<ApiResponse<Tweet>>
         .dropWhile(apiResponse => (
             apiResponse
                 .map(tweet => new Date(tweet.created_at) >= publicationDate)
@@ -295,9 +274,15 @@ const getLatestPublication = async ({ oauthAccessToken, oauthAccessTokenSecret }
                 .getOrElse(false)
         ))
         .toArray();
-    // ApiResponse<Array<Tweet>>
-    const tweetsApiResponse = await mergeApiResponses(tweetApiResponses)
+    // Array<ApiResponse<Tweet>> => ApiResponse<Array<Tweet>>
+    // Array<Either<Left, Right>> => Either<Array<Left>, Array<Right>>
+    // http://folktalegithubio.readthedocs.io/en/latest/api/control/monads/index.html?highlight=sequence#control.monads.control.monads.sequence
+    // If we wanted to aggregate the left (failures), we could use the
+    // Validation type.
+    const tweetsApiResponse = monads.sequence(Either, tweetApiResponses)
 
+    // Since the max ID parameter is inclusive, there will be duplicates where
+    // the pages interleave. This removes them.
     return tweetsApiResponse.map(tweets => uniqBy(tweets, tweet => tweet.id_str))
 };
 
