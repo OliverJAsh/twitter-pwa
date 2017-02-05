@@ -249,7 +249,8 @@ const getLatestPublication = async ({ oauthAccessToken, oauthAccessTokenSecret }
     // Lazily page through tweets in the timeline to find the publication
     // range.
     // Array<ApiResponse<Tweet>>
-    const tweetApiResponses = await new FunctifiedAsync(pageThroughTwitterTimeline({ oauthAccessToken, oauthAccessTokenSecret }))
+    const pages = pageThroughTwitterTimeline({ oauthAccessToken, oauthAccessTokenSecret });
+    const tweetApiResponses = await new FunctifiedAsync(pages)
         // We request by max ID, and since the response is inclusive of the max
         // ID tweet, the paging could continue infinitely. This prevents that.
         // We're not forcing x requests, this is a limit applied lazily.
