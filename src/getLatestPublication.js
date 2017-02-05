@@ -18,8 +18,7 @@ const limit = 800;
 // TODO: Dedupe
 const pageSize = 200;
 
-// Tweet = { id_str: string, created_at: string }
-export const getLatestPublication = async (pages) => { // pages = AsyncIterable<ApiResponse<Tweet[]>>
+const getPublicationDate = () => {
     const nowDate = new Date()
     const publicationHour = 6
     const isTodaysDueForPublication = nowDate.getHours() >= publicationHour
@@ -31,6 +30,12 @@ export const getLatestPublication = async (pages) => { // pages = AsyncIterable<
         nowDate.getDate() - (isTodaysDueForPublication ? 0 : 1),
         publicationHour
     )
+    return publicationDate;
+}
+
+// Tweet = { id_str: string, created_at: string }
+export const getLatestPublication = async (pages) => { // pages = AsyncIterable<ApiResponse<Tweet[]>>
+    const publicationDate = getPublicationDate();
     const previousPublicationDate = subDays(publicationDate, 1);
 
     // Lazily page through tweets in the timeline to find the publication
