@@ -186,9 +186,10 @@ const pageThroughTwitterTimeline = async function* ({ oauthAccessToken, oauthAcc
                 maybeMaxId !== undefined ? { max_id: maybeMaxId } : {}
             )
         })
-        const json = await response.json();
-        if (response.ok) {
-            yield Validation.Success(json);
+        const result = await handleTwitterResponse(response)
+        yield result;
+        // Delegate to an empty iterable
+        yield* result.fold(() => [], async function* (json) {
             const maybeLastTweet = json[json.length - 1];
             if (maybeLastTweet) {
                 const lastTweet = maybeLastTweet;
@@ -199,23 +200,30 @@ const pageThroughTwitterTimeline = async function* ({ oauthAccessToken, oauthAcc
                     message: 'Expected tweet'
                 })])
             }
-        } else {
-            if (response.status === 429) {
-                yield Validation.Failure([new ApiError({
-                    statusCode: 429,
-                    message: 'Twitter API rate limit exceeded'
-                })])
-            } else {
-                yield Validation.Failure([new ApiError({
-                    statusCode: 500,
-                    // TODO: Include actual "unknown" errors here
-                    message: 'Unknown error response from Twitter API'
-                })])
-            }
-        }
+        })
     }
 
     yield* recurse()
+}
+
+const handleTwitterResponse = async response => {
+    if (response.ok) {
+        const json = await response.json();
+        return Validation.Success(json);
+    } else {
+        if (response.status === 429) {
+            return Validation.Failure([new ApiError({
+                statusCode: 429,
+                message: 'Twitter API rate limit exceeded'
+            })])
+        } else {
+            return Validation.Failure([new ApiError({
+                statusCode: 500,
+                // TODO: Include actual "unknown" errors here
+                message: 'Unknown error response from Twitter API'
+            })])
+        }
+    }
 }
 
 // Array<Validation<A, B>> => Validation<Array<A>, Array<B>>
