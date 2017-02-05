@@ -194,11 +194,6 @@ const pageThroughTwitterTimeline = async function* ({ oauthAccessToken, oauthAcc
             if (maybeLastTweet) {
                 const lastTweet = maybeLastTweet;
                 yield* recurse(lastTweet.id_str)
-            } else {
-                yield Validation.Failure([new ApiError({
-                    statusCode: 500,
-                    message: 'Expected tweet'
-                })])
             }
         })
     }
