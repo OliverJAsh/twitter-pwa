@@ -1,5 +1,6 @@
 import Validation from 'data.validation';
 import { uniqBy } from 'lodash';
+import { subDays } from 'date-fns'
 import { FunctifiedAsync } from './functify'
 
 // Array<Validation<A, B>> => Validation<Array<A>, Array<B>>
@@ -30,13 +31,7 @@ export const getLatestPublication = async (pages) => { // pages = AsyncIterable<
         nowDate.getDate() - (isTodaysDueForPublication ? 0 : 1),
         publicationHour
     )
-    // Publication date - 1 day
-    const previousPublicationDate = new Date(
-        publicationDate.getFullYear(),
-        publicationDate.getMonth(),
-        publicationDate.getDate() - 1,
-        publicationDate.getHours()
-    )
+    const previousPublicationDate = subDays(publicationDate, 1);
 
     // Lazily page through tweets in the timeline to find the publication
     // range.
