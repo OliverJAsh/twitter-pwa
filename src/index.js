@@ -277,10 +277,11 @@ const getLatestPublication = async ({ oauthAccessToken, oauthAccessTokenSecret }
         ))
         .toArray();
     const tweetsApiResponse = sequenceValidations(tweetApiResponses)
+        // Since the max ID parameter is inclusive, there will be duplicates where
+        // the pages interleave. This removes them.
+        .map(tweets => uniqBy(tweets, tweet => tweet.id_str))
 
-    // Since the max ID parameter is inclusive, there will be duplicates where
-    // the pages interleave. This removes them.
-    return tweetsApiResponse.map(tweets => uniqBy(tweets, tweet => tweet.id_str))
+    return tweetsApiResponse;
 };
 
 // https://dev.twitter.com/web/sign-in/implementing
