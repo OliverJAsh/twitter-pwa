@@ -6,8 +6,8 @@ https://dev.twitter.com/web/sign-in/implementing
 ## Usage
 
 ```
-npm install
-TWITTER_CONSUMER_KEY= TWITTER_CONSUMER_SECRET= npm start
+yarn
+TWITTER_CONSUMER_KEY= TWITTER_CONSUMER_SECRET= yarn start
 ```
 
 # Design
