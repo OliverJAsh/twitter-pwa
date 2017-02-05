@@ -1,7 +1,9 @@
 {
   "private": true,
   "scripts": {
-    "start": "rm -rf target && mkdir target && babel --presets stage-3,env --out-dir ./target ./src/**/*.js && node ./entry.js"
+    "compile": "rm -rf target && mkdir target && babel --source-maps --presets stage-3,env --out-dir ./target ./{tests,src}/**/*.js",
+    "start": " yarn compile && node --debug ./entry.js",
+    "test": " yarn compile && node --debug ./entry-tests.js"
   },
   "dependencies": {
     "data.validation": "^1.3.1",
@@ -15,6 +17,7 @@
   "devDependencies": {
     "babel-cli": "^6.22.2",
     "babel-preset-env": "^1.1.8",
-    "babel-preset-stage-3": "^6.22.0"
+    "babel-preset-stage-3": "^6.22.0",
+    "blue-tape": "^1.0.0"
   }
 }

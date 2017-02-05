@@ -18,7 +18,7 @@ const limit = 800;
 // TODO: Dedupe
 const pageSize = 200;
 
-const getPublicationDate = () => {
+export const getPublicationDate = () => {
     const nowDate = new Date()
     const publicationHour = 6
     const isTodaysDueForPublication = nowDate.getHours() >= publicationHour
