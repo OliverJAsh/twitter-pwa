@@ -1,4 +1,5 @@
 import { Server, createServer } from 'http';
+import { getLatestPublication } from '../src/getLatestPublication';
 import express from 'express';
 import Validation from 'data.validation';
 import fetch from 'node-fetch';
