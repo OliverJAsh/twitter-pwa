@@ -171,6 +171,7 @@ const limit = 800;
 // This is the max allowed
 const pageSize = 200;
 
+// yields ApiResponse<Tweet[]>
 const pageThroughTwitterTimeline = async function* ({ oauthAccessToken, oauthAccessTokenSecret }) {
     const recurse = async function* (maybeMaxId = undefined) {
         const response = await fetchFromTwitter({
@@ -226,7 +227,7 @@ const sequenceValidations = validations => (
         ), Validation.of([]))
 )
 
-const getLatestPublication = async ({ oauthAccessToken, oauthAccessTokenSecret }) => {
+const getLatestPublication = async (pages) => { // pages = AsyncIterable<ApiResponse<Tweet[]>>
     const nowDate = new Date()
     const publicationHour = 6
     const isTodaysDueForPublication = nowDate.getHours() >= publicationHour
@@ -249,7 +250,6 @@ const getLatestPublication = async ({ oauthAccessToken, oauthAccessTokenSecret }
     // Lazily page through tweets in the timeline to find the publication
     // range.
     // Array<ApiResponse<Tweet>>
-    const pages = pageThroughTwitterTimeline({ oauthAccessToken, oauthAccessTokenSecret });
     const tweetApiResponses = await new FunctifiedAsync(pages)
         // We request by max ID, and since the response is inclusive of the max
         // ID tweet, the paging could continue infinitely. This prevents that.
@@ -309,10 +309,11 @@ app.get('/auth/callback', (req, res, next) => {
 app.get('/', (req, res, next) => {
     // TODO: If logged in helper
     if (req.session.oauthAccessToken) {
-        getLatestPublication({
+        const pages = pageThroughTwitterTimeline({
             oauthAccessToken: req.session.oauthAccessToken,
             oauthAccessTokenSecret: req.session.oauthAccessTokenSecret
-        })
+        });
+        getLatestPublication(pages)
             .then(apiResponse => {
                 apiResponse.cata({
                     Failure: apiErrorsList => {
