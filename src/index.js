@@ -172,6 +172,8 @@ const limit = 800;
 const pageSize = 200;
 
 // yields ApiResponse<Tweet[]>
+// if last tweet, recurse
+// if no last tweet, do nothing (e.g. empty timeline)
 const pageThroughTwitterTimeline = async function* ({ oauthAccessToken, oauthAccessTokenSecret }) {
     const recurse = async function* (maybeMaxId = undefined) {
         const response = await fetchFromTwitter({
@@ -201,6 +203,9 @@ const pageThroughTwitterTimeline = async function* ({ oauthAccessToken, oauthAcc
     yield* recurse()
 }
 
+// when ok, should return json
+// when not ok and status is 429, return error
+// when not ok and status is not recognised, return error
 const handleTwitterResponse = async response => {
     if (response.ok) {
         const json = await response.json();
